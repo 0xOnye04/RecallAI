@@ -25,26 +25,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A valid Sui wallet address is required" }, { status: 400 });
   }
 
-  if (!body.message?.includes(`Wallet: ${body.walletAddress}`) || !body.signature) {
-    return NextResponse.json({ error: "Wallet signature is required to confirm ownership" }, { status: 401 });
-  }
-
-  const issuedAt = extractIssuedAt(body.message);
+  let authWarning: string | undefined;
+  const message = body.message ?? "";
+  const issuedAt = extractIssuedAt(message);
   if (!issuedAt || Date.now() - issuedAt.getTime() > MAX_LOGIN_AGE_MS || issuedAt.getTime() - Date.now() > 30_000) {
-    return NextResponse.json({ error: "Wallet login signature expired. Please connect again." }, { status: 401 });
+    authWarning = "Wallet signature timestamp was missing or expired";
   }
 
   let walletSignatureVerified = false;
-  try {
+  if (!message.includes(`Wallet: ${body.walletAddress}`) || !body.signature) {
+    authWarning = "Wallet signature was not included";
+  } else try {
     const messageBytes = body.signedBytes
       ? fromBase64(body.signedBytes)
-      : new TextEncoder().encode(body.message);
+      : new TextEncoder().encode(message);
     await verifyPersonalMessageSignature(messageBytes, body.signature, {
       address: body.walletAddress
     });
     walletSignatureVerified = true;
   } catch {
     walletSignatureVerified = false;
+    authWarning = "Wallet signature could not be verified by the server";
   }
 
   const tatum = await getTatumWalletProfile(body.walletAddress);
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
     walletAddress: body.walletAddress,
     issuedAt: new Date().toISOString(),
     walletSignatureVerified,
+    authWarning,
     tatumVerified: tatum.tatumVerified,
     recentTransactionCount: tatum.recentTransactionCount
   });
