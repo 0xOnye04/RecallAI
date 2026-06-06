@@ -18,6 +18,21 @@ function makeTitle(input: string) {
   return trimmed.length > 56 ? `${trimmed.slice(0, 53)}...` : trimmed || "Untitled memory";
 }
 
+function mergeMemorySessions(...groups: MemorySession[][]) {
+  const byId = new Map<string, MemorySession>();
+
+  for (const group of groups) {
+    for (const session of group) {
+      const existing = byId.get(session.id);
+      if (!existing || existing.updatedAt < session.updatedAt) {
+        byId.set(session.id, session);
+      }
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export async function loadMemorySessions(walletAddress: string) {
   const references = await listBlobReferences(walletAddress);
   return loadMemorySessionsFromReferences(walletAddress, references);
@@ -45,8 +60,19 @@ export async function createChatTurn(params: {
   walletAddress: string;
   sessionId?: string;
   message: string;
+  references?: MemoryReference[];
+  currentSession?: MemorySession;
 }) {
-  const memories = await loadMemorySessions(params.walletAddress);
+  const [serverMemories, referencedMemories] = await Promise.all([
+    loadMemorySessions(params.walletAddress),
+    params.references?.length
+      ? loadMemorySessionsFromReferences(params.walletAddress, params.references)
+      : Promise.resolve([])
+  ]);
+  const clientMemories = params.currentSession?.walletAddress.toLowerCase() === params.walletAddress.toLowerCase()
+    ? [params.currentSession]
+    : [];
+  const memories = mergeMemorySessions(serverMemories, referencedMemories, clientMemories);
   const existingSession = params.sessionId
     ? memories.find((session) => session.id === params.sessionId)
     : undefined;

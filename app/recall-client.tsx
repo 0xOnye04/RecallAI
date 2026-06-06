@@ -62,6 +62,10 @@ function memoryCacheKey(walletAddress: string) {
   return `recall-ai:walrus-references:${walletAddress.toLowerCase()}`;
 }
 
+function sessionCacheKey(walletAddress: string) {
+  return `recall-ai:sessions:${walletAddress.toLowerCase()}`;
+}
+
 function readCachedReferences(walletAddress: string): MemoryReference[] {
   try {
     const value = window.localStorage.getItem(memoryCacheKey(walletAddress));
@@ -71,6 +75,30 @@ function readCachedReferences(walletAddress: string): MemoryReference[] {
   } catch {
     return [];
   }
+}
+
+function readCachedSessions(walletAddress: string): MemorySession[] {
+  try {
+    const value = window.localStorage.getItem(sessionCacheKey(walletAddress));
+    if (!value) return [];
+    const cachedSessions = JSON.parse(value) as MemorySession[];
+    if (!Array.isArray(cachedSessions)) return [];
+    return cachedSessions
+      .filter((session) => session.walletAddress?.toLowerCase() === walletAddress.toLowerCase())
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  } catch {
+    return [];
+  }
+}
+
+function cacheSessions(walletAddress: string, sessions: MemorySession[]) {
+  const next = sessions
+    .filter((session) => session.walletAddress.toLowerCase() === walletAddress.toLowerCase())
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 25);
+
+  window.localStorage.setItem(sessionCacheKey(walletAddress), JSON.stringify(next));
+  cacheSessionReferences(walletAddress, next);
 }
 
 function cacheSessionReferences(walletAddress: string, sessions: MemorySession[]) {
@@ -258,6 +286,16 @@ function RecallApp() {
     setIsLoadingMemory(true);
     setError("");
     try {
+      const cachedSessions = readCachedSessions(address);
+      if (!cancelled && cachedSessions.length) {
+        setSessions(cachedSessions);
+        setActiveSessionId((current) =>
+          current && cachedSessions.some((session) => session.id === current)
+            ? current
+            : cachedSessions[0]?.id
+        );
+      }
+
       const cachedReferences = readCachedReferences(address);
       const response = await fetch("/api/memory", {
         method: "POST",
@@ -268,12 +306,13 @@ function RecallApp() {
       if (!response.ok) throw new Error(payload?.error ?? `Could not load memory: ${response.status}`);
       if (!payload?.sessions) throw new Error("Memory API returned an empty response");
       if (cancelled) return;
-      setSessions(payload.sessions);
-      cacheSessionReferences(address, payload.sessions);
+      const restoredSessions = payload.sessions.length ? payload.sessions : cachedSessions;
+      setSessions(restoredSessions);
+      cacheSessions(address, restoredSessions);
       setActiveSessionId((current) =>
-        current && payload.sessions?.some((session) => session.id === current)
+        current && restoredSessions.some((session) => session.id === current)
           ? current
-          : payload.sessions?.[0]?.id
+          : restoredSessions[0]?.id
       );
     } catch (loadError) {
       if (!cancelled) {
@@ -317,6 +356,8 @@ function RecallApp() {
         body: JSON.stringify({
           walletAddress: auth.walletAddress,
           sessionId: activeSessionId,
+          references: readCachedReferences(auth.walletAddress),
+          currentSession: activeSession,
           message
         })
       });
@@ -328,7 +369,7 @@ function RecallApp() {
       setSessions((current) => {
         const withoutSession = current.filter((session) => session.id !== savedSession.id);
         const next = [savedSession, ...withoutSession];
-        cacheSessionReferences(auth.walletAddress, next);
+        cacheSessions(auth.walletAddress, next);
         return next;
       });
       setActiveSessionId(savedSession.id);

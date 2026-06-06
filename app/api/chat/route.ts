@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { createChatTurn } from "@/lib/memory";
+import type { MemoryReference, MemorySession } from "@/lib/types";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as {
       walletAddress?: string;
       sessionId?: string;
+      references?: MemoryReference[];
+      currentSession?: MemorySession;
       message?: string;
     };
 
@@ -20,6 +23,8 @@ export async function POST(request: Request) {
     const result = await createChatTurn({
       walletAddress: body.walletAddress,
       sessionId: body.sessionId,
+      references: body.references,
+      currentSession: body.currentSession,
       message: body.message
     });
     return NextResponse.json(result);
