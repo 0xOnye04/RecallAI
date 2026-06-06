@@ -95,6 +95,7 @@ export async function createChatTurn(params: {
       ...session,
       blobId,
       storageProvider: blobId.startsWith("local-walrus-") ? "local-walrus" : "walrus",
+      suiReferenceProvider: savedReference.suiReferenceProvider ?? "local",
       suiReferenceId: savedReference.suiReferenceId
     },
     reference: savedReference

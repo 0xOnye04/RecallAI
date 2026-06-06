@@ -14,6 +14,8 @@ export type MemorySession = {
   messages: ChatMessage[];
   blobId?: string;
   suiReferenceId?: string;
+  suiReferenceProvider?: "sui" | "local";
+  suiTransactionDigest?: string;
   storageProvider?: "walrus" | "local-walrus";
   createdAt: string;
   updatedAt: string;
@@ -25,6 +27,8 @@ export type MemoryReference = {
   title: string;
   blobId: string;
   suiReferenceId?: string;
+  suiReferenceProvider?: "sui" | "local";
+  suiTransactionDigest?: string;
   messageCount: number;
   createdAt: string;
   updatedAt: string;

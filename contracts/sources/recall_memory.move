@@ -1,6 +1,7 @@
 module recall_ai::recall_memory {
     use sui::event;
     use sui::object::{Self, UID};
+    use sui::transfer;
     use sui::tx_context::{Self, TxContext};
 
     public struct Registry has key, store {

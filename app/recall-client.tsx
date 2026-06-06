@@ -20,6 +20,7 @@ import {
   Wallet
 } from "lucide-react";
 import { dAppKit } from "@/app/dapp-kit";
+import { isSuiMemoryConfigured, storeMemoryReferenceOnSui } from "@/app/sui-chain-memory";
 import type { AuthSession, ChatMessage, MemorySession } from "@/lib/types";
 
 type SuiStatus = {
@@ -58,6 +59,14 @@ function formatStorageProvider(session: MemorySession) {
   return "Legacy local dev";
 }
 
+function formatSuiReference(session: MemorySession) {
+  if (session.suiReferenceProvider === "sui" || session.suiTransactionDigest) {
+    return `Sui tx ${session.suiTransactionDigest ?? session.suiReferenceId}`;
+  }
+
+  return "Local Sui ref";
+}
+
 async function readApiJson<T>(response: Response): Promise<T | null> {
   const text = await response.text();
   if (!text.trim()) return null;
@@ -81,6 +90,7 @@ function RecallApp() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showWallets, setShowWallets] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isWritingSui, setIsWritingSui] = useState(false);
   const [error, setError] = useState("");
   const [suiStatus, setSuiStatus] = useState<SuiStatus | null>(null);
   const [walrusStatus, setWalrusStatus] = useState<WalrusStatus | null>(null);
@@ -250,7 +260,25 @@ function RecallApp() {
       const payload = await readApiJson<{ session?: MemorySession; error?: string }>(response);
       if (!response.ok) throw new Error(payload?.error ?? `Chat request failed with ${response.status}`);
       if (!payload?.session) throw new Error("Chat API returned an empty response");
-      const savedSession = payload.session;
+      let savedSession = payload.session;
+
+      if (isSuiMemoryConfigured() && savedSession.blobId && !savedSession.blobId.startsWith("local-walrus-")) {
+        setIsWritingSui(true);
+        try {
+          const digest = await storeMemoryReferenceOnSui({
+            suiKit,
+            session: savedSession
+          });
+          savedSession = {
+            ...savedSession,
+            suiReferenceProvider: "sui",
+            suiReferenceId: digest,
+            suiTransactionDigest: digest
+          };
+        } finally {
+          setIsWritingSui(false);
+        }
+      }
 
       setSessions((current) => {
         const withoutSession = current.filter((session) => session.id !== savedSession.id);
@@ -369,6 +397,9 @@ function RecallApp() {
               ? `${walrusStatus.provider}${walrusStatus.publisherConfigured && walrusStatus.aggregatorConfigured ? " active" : " fallback"}`
               : "Checking Walrus storage..."}
           </p>
+          <p className="small-copy">
+            {isSuiMemoryConfigured() ? "Sui on-chain references enabled" : "Sui references using local fallback"}
+          </p>
           <div className="memory-list">
             {isLoadingMemory ? (
               <p className="small-copy">Restoring sessions...</p>
@@ -385,6 +416,7 @@ function RecallApp() {
                     {session.messages.length} messages - {formatDate(session.updatedAt)}
                   </span>
                   <span>{formatStorageProvider(session)} - {session.blobId ?? "Blob restored"}</span>
+                  <span>{formatSuiReference(session)}</span>
                 </button>
               ))
             ) : (
@@ -437,7 +469,7 @@ function RecallApp() {
           )}
           {isSending ? (
             <article className="message assistant">
-              <Loader2 size={16} /> Thinking with restored memory...
+              <Loader2 size={16} /> {isWritingSui ? "Writing blob reference on Sui..." : "Thinking with restored memory..."}
             </article>
           ) : null}
         </div>

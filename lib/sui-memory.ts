@@ -12,6 +12,7 @@ export async function saveBlobReference(reference: MemoryReference) {
   references[wallet] = [
     {
       ...reference,
+      suiReferenceProvider: reference.suiReferenceProvider ?? "local",
       suiReferenceId: reference.suiReferenceId ?? `local-sui-ref-${reference.sessionId}`
     },
     ...next
