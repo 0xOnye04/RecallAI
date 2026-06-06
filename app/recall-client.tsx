@@ -176,7 +176,12 @@ function RecallApp() {
         const response = await fetch("/api/auth", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ walletAddress: connectedAddress, signature, message })
+          body: JSON.stringify({
+            walletAddress: connectedAddress,
+            signature,
+            signedBytes: signed.bytes,
+            message
+          })
         });
         const session = await readApiJson<AuthSession & { error?: string }>(response);
         if (!response.ok) throw new Error(session?.error ?? `Wallet auth failed with ${response.status}`);
@@ -299,7 +304,12 @@ function RecallApp() {
     const response = await fetch("/api/auth", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ walletAddress, signature: signed.signature, message })
+      body: JSON.stringify({
+        walletAddress,
+        signature: signed.signature,
+        signedBytes: signed.bytes,
+        message
+      })
     });
     const session = await readApiJson<AuthSession & { error?: string }>(response);
     if (!response.ok) throw new Error(session?.error ?? `Wallet auth failed with ${response.status}`);
@@ -412,9 +422,11 @@ function RecallApp() {
             <>
               <p className="wallet-address">{formatShortAddress(auth.walletAddress)}</p>
               <p className="small-copy">
-                {auth.tatumVerified
-                  ? `Tatum verified${typeof auth.recentTransactionCount === "number" ? `, ${auth.recentTransactionCount} recent txs` : ""}`
-                  : "Connected. Add TATUM_API_KEY for verification."}
+                {auth.walletSignatureVerified
+                  ? "Wallet signature verified"
+                  : auth.tatumVerified
+                    ? `Tatum verified${typeof auth.recentTransactionCount === "number" ? `, ${auth.recentTransactionCount} recent txs` : ""}`
+                    : "Wallet signed in. Add TATUM_API_KEY for network verification."}
               </p>
               <button className="secondary-button" onClick={disconnect} type="button" title="Disconnect wallet">
                 <LogOut size={17} />

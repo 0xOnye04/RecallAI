@@ -38,5 +38,6 @@ export type AuthSession = {
   walletAddress: string;
   issuedAt: string;
   tatumVerified: boolean;
+  walletSignatureVerified?: boolean;
   recentTransactionCount?: number;
 };

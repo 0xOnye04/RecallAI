@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fromBase64 } from "@mysten/sui/utils";
 import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import { getTatumWalletProfile } from "@/lib/tatum";
 
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
   const body = await request.json() as {
     walletAddress?: string;
     signature?: string;
+    signedBytes?: string;
     message?: string;
   };
 
@@ -32,12 +34,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Wallet login signature expired. Please connect again." }, { status: 401 });
   }
 
+  let walletSignatureVerified = false;
   try {
-    await verifyPersonalMessageSignature(new TextEncoder().encode(body.message), body.signature, {
+    const messageBytes = body.signedBytes
+      ? fromBase64(body.signedBytes)
+      : new TextEncoder().encode(body.message);
+    await verifyPersonalMessageSignature(messageBytes, body.signature, {
       address: body.walletAddress
     });
+    walletSignatureVerified = true;
   } catch {
-    return NextResponse.json({ error: "Wallet signature could not be verified" }, { status: 401 });
+    walletSignatureVerified = false;
   }
 
   const tatum = await getTatumWalletProfile(body.walletAddress);
@@ -45,6 +52,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     walletAddress: body.walletAddress,
     issuedAt: new Date().toISOString(),
+    walletSignatureVerified,
     tatumVerified: tatum.tatumVerified,
     recentTransactionCount: tatum.recentTransactionCount
   });
