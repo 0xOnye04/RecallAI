@@ -20,7 +20,7 @@ import {
   Wallet
 } from "lucide-react";
 import { dAppKit } from "@/app/dapp-kit";
-import type { AuthSession, ChatMessage, MemorySession } from "@/lib/types";
+import type { AuthSession, ChatMessage, MemoryReference, MemorySession } from "@/lib/types";
 
 type SuiStatus = {
   provider: string;
@@ -56,6 +56,50 @@ function formatStorageProvider(session: MemorySession) {
   }
 
   return "Legacy local dev";
+}
+
+function memoryCacheKey(walletAddress: string) {
+  return `recall-ai:walrus-references:${walletAddress.toLowerCase()}`;
+}
+
+function readCachedReferences(walletAddress: string): MemoryReference[] {
+  try {
+    const value = window.localStorage.getItem(memoryCacheKey(walletAddress));
+    if (!value) return [];
+    const references = JSON.parse(value) as MemoryReference[];
+    return Array.isArray(references) ? references : [];
+  } catch {
+    return [];
+  }
+}
+
+function cacheSessionReferences(walletAddress: string, sessions: MemorySession[]) {
+  const existing = readCachedReferences(walletAddress);
+  const next = new Map<string, MemoryReference>();
+
+  for (const reference of existing) {
+    if (reference.walletAddress.toLowerCase() === walletAddress.toLowerCase() && reference.blobId) {
+      next.set(reference.sessionId, reference);
+    }
+  }
+
+  for (const session of sessions) {
+    if (!session.blobId) continue;
+    next.set(session.id, {
+      sessionId: session.id,
+      walletAddress,
+      title: session.title,
+      blobId: session.blobId,
+      messageCount: session.messages.length,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    });
+  }
+
+  const references = Array.from(next.values())
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 50);
+  window.localStorage.setItem(memoryCacheKey(walletAddress), JSON.stringify(references));
 }
 
 async function readApiJson<T>(response: Response): Promise<T | null> {
@@ -144,8 +188,6 @@ function RecallApp() {
   useEffect(() => {
     if (!walletAddress) {
       setAuth(null);
-      setSessions([]);
-      setActiveSessionId(undefined);
       setInput("");
       setError("");
       return;
@@ -216,13 +258,23 @@ function RecallApp() {
     setIsLoadingMemory(true);
     setError("");
     try {
-      const response = await fetch(`/api/memory?walletAddress=${encodeURIComponent(address)}`);
+      const cachedReferences = readCachedReferences(address);
+      const response = await fetch("/api/memory", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ walletAddress: address, references: cachedReferences })
+      });
       const payload = await readApiJson<{ sessions?: MemorySession[]; error?: string }>(response);
       if (!response.ok) throw new Error(payload?.error ?? `Could not load memory: ${response.status}`);
       if (!payload?.sessions) throw new Error("Memory API returned an empty response");
       if (cancelled) return;
       setSessions(payload.sessions);
-      setActiveSessionId(payload.sessions[0]?.id);
+      cacheSessionReferences(address, payload.sessions);
+      setActiveSessionId((current) =>
+        current && payload.sessions?.some((session) => session.id === current)
+          ? current
+          : payload.sessions?.[0]?.id
+      );
     } catch (loadError) {
       if (!cancelled) {
         setError(loadError instanceof Error ? loadError.message : "Could not load memory");
@@ -275,7 +327,9 @@ function RecallApp() {
 
       setSessions((current) => {
         const withoutSession = current.filter((session) => session.id !== savedSession.id);
-        return [savedSession, ...withoutSession];
+        const next = [savedSession, ...withoutSession];
+        cacheSessionReferences(auth.walletAddress, next);
+        return next;
       });
       setActiveSessionId(savedSession.id);
     } catch (sendError) {

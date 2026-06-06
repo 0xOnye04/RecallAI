@@ -20,6 +20,10 @@ function makeTitle(input: string) {
 
 export async function loadMemorySessions(walletAddress: string) {
   const references = await listBlobReferences(walletAddress);
+  return loadMemorySessionsFromReferences(walletAddress, references);
+}
+
+export async function loadMemorySessionsFromReferences(walletAddress: string, references: MemoryReference[]) {
   const settledSessions = await Promise.allSettled(
     references.map(async (reference) => {
       const encrypted = await withTimeout(
