@@ -13,8 +13,7 @@ The user connects a Sui wallet, chats with the assistant, and every session is e
 5. The full session is encrypted with AES-256-GCM.
 6. The encrypted payload is stored on Walrus.
 7. Recall AI saves the Walrus `blobId` as the memory reference.
-8. If the Sui registry contract is configured, the wallet signs a transaction that writes the `blobId` into the on-chain Sui memory registry.
-9. On reload/reconnect, the app restores previous memory from Walrus and uses it in future replies.
+8. On reload/reconnect, the app restores previous memory from Walrus and uses it in future replies.
 
 ## Stack
 
@@ -24,7 +23,6 @@ The user connects a Sui wallet, chats with the assistant, and every session is e
 - Groq AI chat completions, with optional OpenAI fallback
 - Tatum Sui JSON-RPC gateway
 - Walrus encrypted blob storage
-- Sui Move contract scaffold for memory references
 
 ## Current Demo Configuration
 
@@ -43,10 +41,6 @@ TATUM_SUI_NETWORK=testnet
 
 WALRUS_PUBLISHER_URL=https://publisher.walrus-testnet.walrus.space
 WALRUS_AGGREGATOR_URL=https://aggregator.walrus-testnet.walrus.space
-
-NEXT_PUBLIC_SUI_MEMORY_PACKAGE_ID=
-NEXT_PUBLIC_SUI_MEMORY_MODULE=recall_memory
-NEXT_PUBLIC_SUI_MEMORY_REGISTRY_ID=
 ```
 
 Do not commit `.env.local`. It is ignored by Git.
@@ -112,7 +106,7 @@ It should return encrypted JSON containing `algorithm`, `iv`, `tag`, and `cipher
 - `app/api/walrus/status/route.ts` proves whether the app is using real Walrus or local dev fallback.
 - `lib/tatum-sui-rpc.ts` calls Tatum's Sui RPC gateway with `x-api-key`.
 - `app/api/sui/status/route.ts` displays live Tatum Sui RPC checkpoint status.
-- `app/sui-chain-memory.ts` builds the wallet-signed Sui transaction that writes each Walrus `blobId` into the deployed `recall_memory` registry.
+- Wallet login still requires Sui ownership confirmation through signed messages, while memory persistence uses Walrus blob IDs.
 
 ### Technical Quality
 
@@ -183,31 +177,11 @@ Walrus Mainnet can use a public aggregator, but publishing on Mainnet requires a
 - `app/api/chat/route.ts` - AI chat turn, encryption, Walrus persistence.
 - `app/api/sui/status/route.ts` - Tatum Sui RPC status endpoint.
 - `app/api/walrus/status/route.ts` - Walrus status endpoint.
-- `app/sui-chain-memory.ts` - Client-side wallet transaction for Sui blob ID references.
 - `lib/openai.ts` - Groq/OpenAI provider adapter and memory context injection.
 - `lib/walrus.ts` - Walrus publisher/aggregator adapter with local fallback.
 - `lib/memory.ts` - Memory restore/save workflow.
 - `lib/tatum-sui-rpc.ts` - Tatum Sui JSON-RPC adapter.
-- `contracts/sources/recall_memory.move` - Sui Move registry scaffold.
-
-## Real Sui Blob Reference Storage
-
-The app can write Walrus blob IDs to Sui through the `recall_memory` Move module. The transaction is built in the frontend and signed by the connected wallet.
-
-Setup:
-
-1. Publish `contracts/sources/recall_memory.move` to the same Sui network used by the app.
-2. Call `create_registry` once with the demo wallet.
-3. Copy the published package ID and created registry object ID.
-4. Set these variables locally and in Vercel:
-
-```env
-NEXT_PUBLIC_SUI_MEMORY_PACKAGE_ID=0x...
-NEXT_PUBLIC_SUI_MEMORY_MODULE=recall_memory
-NEXT_PUBLIC_SUI_MEMORY_REGISTRY_ID=0x...
-```
-
-When configured, every new real Walrus memory asks the wallet to sign a second transaction. The memory dashboard will show `Sui tx <digest>` instead of `Local Sui ref`.
+- `contracts/sources/recall_memory.move` - Optional Sui Move experiment, not required for the current Walrus blob-ID demo.
 
 ## Repository
 

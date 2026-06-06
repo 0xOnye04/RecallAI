@@ -5,6 +5,8 @@ out
 .env*.local
 .data
 tsconfig.tsbuildinfo
+contracts/build
+contracts/Published.toml
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

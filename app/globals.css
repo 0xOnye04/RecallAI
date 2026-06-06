@@ -44,6 +44,49 @@ button {
     var(--bg);
 }
 
+.signin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(8, 10, 12, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.signin-modal {
+  width: min(420px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 22px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.signin-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  color: var(--accent);
+  border: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+
+.signin-modal h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.signin-modal p {
+  margin: 10px 0 18px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .sidebar {
   border-right: 1px solid var(--line);
   background: rgba(20, 22, 26, 0.92);
@@ -159,6 +202,12 @@ button {
   padding: 8px 10px;
   cursor: pointer;
   text-align: left;
+}
+
+.wallet-option:disabled,
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .wallet-option img {

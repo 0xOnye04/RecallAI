@@ -4,13 +4,13 @@ module recall_ai::recall_memory {
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
 
-    public struct Registry has key, store {
+    public struct Registry has key {
         id: UID,
-        owner: address,
         entries: vector<MemoryRef>
     }
 
     public struct MemoryRef has copy, drop, store {
+        owner: address,
         session_id: vector<u8>,
         title: vector<u8>,
         blob_id: vector<u8>,
@@ -24,18 +24,14 @@ module recall_ai::recall_memory {
         updated_at_ms: u64
     }
 
-    public entry fun create_registry(ctx: &mut TxContext) {
-        transfer::transfer(
-            Registry {
-                id: object::new(ctx),
-                owner: tx_context::sender(ctx),
-                entries: vector[]
-            },
-            tx_context::sender(ctx)
-        );
+    entry fun create_registry(ctx: &mut TxContext) {
+        transfer::share_object(Registry {
+            id: object::new(ctx),
+            entries: vector[]
+        });
     }
 
-    public entry fun upsert_memory(
+    entry fun upsert_memory(
         registry: &mut Registry,
         session_id: vector<u8>,
         title: vector<u8>,
@@ -43,18 +39,18 @@ module recall_ai::recall_memory {
         updated_at_ms: u64,
         ctx: &mut TxContext
     ) {
-        assert!(registry.owner == tx_context::sender(ctx), 0);
+        let owner = tx_context::sender(ctx);
 
-        let index = 0;
+        let mut index = 0;
         let len = vector::length(&registry.entries);
         while (index < len) {
             let existing = vector::borrow_mut(&mut registry.entries, index);
-            if (existing.session_id == session_id) {
+            if (existing.owner == owner && existing.session_id == session_id) {
                 existing.title = title;
                 existing.blob_id = blob_id;
                 existing.updated_at_ms = updated_at_ms;
                 event::emit(MemoryStored {
-                    owner: registry.owner,
+                    owner,
                     session_id,
                     blob_id,
                     updated_at_ms
@@ -65,6 +61,7 @@ module recall_ai::recall_memory {
         };
 
         vector::push_back(&mut registry.entries, MemoryRef {
+            owner,
             session_id,
             title,
             blob_id,
@@ -72,7 +69,7 @@ module recall_ai::recall_memory {
         });
 
         event::emit(MemoryStored {
-            owner: registry.owner,
+            owner,
             session_id,
             blob_id,
             updated_at_ms

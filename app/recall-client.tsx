@@ -20,7 +20,6 @@ import {
   Wallet
 } from "lucide-react";
 import { dAppKit } from "@/app/dapp-kit";
-import { isSuiMemoryConfigured, storeMemoryReferenceOnSui } from "@/app/sui-chain-memory";
 import type { AuthSession, ChatMessage, MemorySession } from "@/lib/types";
 
 type SuiStatus = {
@@ -59,14 +58,6 @@ function formatStorageProvider(session: MemorySession) {
   return "Legacy local dev";
 }
 
-function formatSuiReference(session: MemorySession) {
-  if (session.suiReferenceProvider === "sui" || session.suiTransactionDigest) {
-    return `Sui tx ${session.suiTransactionDigest ?? session.suiReferenceId}`;
-  }
-
-  return "Local Sui ref";
-}
-
 async function readApiJson<T>(response: Response): Promise<T | null> {
   const text = await response.text();
   if (!text.trim()) return null;
@@ -90,11 +81,13 @@ function RecallApp() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [showWallets, setShowWallets] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [isWritingSui, setIsWritingSui] = useState(false);
+  const [isConfirmingNewSession, setIsConfirmingNewSession] = useState(false);
   const [error, setError] = useState("");
   const [suiStatus, setSuiStatus] = useState<SuiStatus | null>(null);
   const [walrusStatus, setWalrusStatus] = useState<WalrusStatus | null>(null);
   const streamRef = useRef<HTMLDivElement>(null);
+  const manualConnectRef = useRef(false);
+  const clearedRestoredWalletRef = useRef(false);
   const walletAddress = currentAccount?.address;
 
   const activeSession = useMemo(
@@ -112,6 +105,13 @@ function RecallApp() {
     window.localStorage.removeItem("mysten-dapp-kit:selected-wallet-and-address");
     window.localStorage.removeItem("recall-ai:sui-wallet");
   }, []);
+
+  useEffect(() => {
+    if (!walletAddress || manualConnectRef.current || clearedRestoredWalletRef.current) return;
+
+    clearedRestoredWalletRef.current = true;
+    suiKit.disconnectWallet().catch(() => undefined);
+  }, [suiKit, walletAddress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +152,7 @@ function RecallApp() {
     }
 
     if (auth?.walletAddress === walletAddress) return;
+    if (!manualConnectRef.current) return;
 
     let cancelled = false;
     const connectedAddress = walletAddress;
@@ -161,17 +162,16 @@ function RecallApp() {
       setError("");
 
       try {
-        const message = `Recall AI login ${new Date().toISOString()}`;
-        let signature = "";
+        const message = [
+          "Recall AI wallet login",
+          `Wallet: ${connectedAddress}`,
+          `Issued At: ${new Date().toISOString()}`
+        ].join("\n");
 
-        try {
-          const signed = await suiKit.signPersonalMessage({
-            message: new TextEncoder().encode(message)
-          });
-          signature = signed.signature;
-        } catch {
-          signature = "";
-        }
+        const signed = await suiKit.signPersonalMessage({
+          message: new TextEncoder().encode(message)
+        });
+        const signature = signed.signature;
 
         const response = await fetch("/api/auth", {
           method: "POST",
@@ -183,11 +183,17 @@ function RecallApp() {
         if (!session) throw new Error("Wallet auth returned an empty response");
         if (cancelled) return;
 
+        manualConnectRef.current = false;
         setAuth(session);
         await loadMemory(connectedAddress, cancelled);
       } catch (connectError) {
+        await suiKit.disconnectWallet().catch(() => undefined);
         if (!cancelled) {
-          setError(connectError instanceof Error ? connectError.message : "Wallet connection failed");
+          manualConnectRef.current = false;
+          setAuth(null);
+          setSessions([]);
+          setActiveSessionId(undefined);
+          setError(connectError instanceof Error ? connectError.message : "Wallet ownership confirmation failed");
         }
       } finally {
         if (!cancelled) setIsSigningIn(false);
@@ -260,25 +266,7 @@ function RecallApp() {
       const payload = await readApiJson<{ session?: MemorySession; error?: string }>(response);
       if (!response.ok) throw new Error(payload?.error ?? `Chat request failed with ${response.status}`);
       if (!payload?.session) throw new Error("Chat API returned an empty response");
-      let savedSession = payload.session;
-
-      if (isSuiMemoryConfigured() && savedSession.blobId && !savedSession.blobId.startsWith("local-walrus-")) {
-        setIsWritingSui(true);
-        try {
-          const digest = await storeMemoryReferenceOnSui({
-            suiKit,
-            session: savedSession
-          });
-          savedSession = {
-            ...savedSession,
-            suiReferenceProvider: "sui",
-            suiReferenceId: digest,
-            suiTransactionDigest: digest
-          };
-        } finally {
-          setIsWritingSui(false);
-        }
-      }
+      const savedSession = payload.session;
 
       setSessions((current) => {
         const withoutSession = current.filter((session) => session.id !== savedSession.id);
@@ -293,28 +281,118 @@ function RecallApp() {
     }
   }
 
-  function startNewSession() {
-    setActiveSessionId(undefined);
+  async function confirmWalletOwnership(reason: string) {
+    if (!walletAddress) {
+      throw new Error("Connect your Sui wallet first");
+    }
+
+    const message = [
+      `Recall AI ${reason}`,
+      `Wallet: ${walletAddress}`,
+      `Issued At: ${new Date().toISOString()}`
+    ].join("\n");
+
+    const signed = await suiKit.signPersonalMessage({
+      message: new TextEncoder().encode(message)
+    });
+
+    const response = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ walletAddress, signature: signed.signature, message })
+    });
+    const session = await readApiJson<AuthSession & { error?: string }>(response);
+    if (!response.ok) throw new Error(session?.error ?? `Wallet auth failed with ${response.status}`);
+    if (!session) throw new Error("Wallet auth returned an empty response");
+
+    setAuth(session);
+    return session;
+  }
+
+  async function startNewSession() {
+    if (isConfirmingNewSession) return;
+
+    setIsConfirmingNewSession(true);
     setError("");
+
+    try {
+      await confirmWalletOwnership("new conversation");
+      setActiveSessionId(undefined);
+      setInput("");
+    } catch (newSessionError) {
+      setError(newSessionError instanceof Error ? newSessionError.message : "Wallet confirmation failed");
+    } finally {
+      setIsConfirmingNewSession(false);
+    }
   }
 
   async function disconnect() {
     setShowWallets(false);
+    manualConnectRef.current = false;
     await suiKit.disconnectWallet();
+    setAuth(null);
+    setSessions([]);
+    setActiveSessionId(undefined);
   }
 
   async function connectInstalledWallet(wallet: (typeof wallets)[number]) {
     setError("");
+    manualConnectRef.current = true;
     try {
       await suiKit.connectWallet({ wallet });
       setShowWallets(false);
     } catch (connectError) {
+      manualConnectRef.current = false;
       setError(connectError instanceof Error ? connectError.message : "Wallet extension connection failed");
     }
   }
 
+  const walletOptions = wallets.length ? (
+    wallets.map((wallet) => (
+      <button
+        className="wallet-option"
+        disabled={isSigningIn}
+        key={wallet.name}
+        onClick={() => connectInstalledWallet(wallet)}
+        type="button"
+      >
+        {wallet.icon ? <img alt="" src={wallet.icon} /> : <Wallet size={18} />}
+        <span>{wallet.name}</span>
+      </button>
+    ))
+  ) : (
+    <p className="small-copy">
+      No installed Sui wallet extension was detected. Install or enable a Sui-compatible extension, then refresh.
+    </p>
+  );
+
   return (
     <main className="app-shell">
+      {!auth ? (
+        <div className="signin-overlay" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+          <section className="signin-modal">
+            <div className="signin-icon">
+              {isSigningIn ? <Loader2 size={26} /> : <Wallet size={26} />}
+            </div>
+            <h2 id="signin-title">Sign in with your Sui wallet</h2>
+            <p>
+              Confirm wallet ownership to restore your encrypted Walrus memory and continue chatting with Recall AI.
+            </p>
+            <button
+              className="primary-button"
+              disabled={isSigningIn}
+              onClick={() => setShowWallets((value) => !value)}
+              type="button"
+            >
+              <Wallet size={18} />
+              {isSigningIn ? "Waiting for wallet signature..." : "Connect Sui Wallet"}
+            </button>
+            {showWallets ? <div className="wallet-menu">{walletOptions}</div> : null}
+            {error ? <p className="error-text">{error}</p> : null}
+          </section>
+        </div>
+      ) : null}
+
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">R</div>
@@ -360,23 +438,7 @@ function RecallApp() {
               </button>
               {showWallets ? (
                 <div className="wallet-menu">
-                  {wallets.length ? (
-                    wallets.map((wallet) => (
-                      <button
-                        className="wallet-option"
-                        key={wallet.name}
-                        onClick={() => connectInstalledWallet(wallet)}
-                        type="button"
-                      >
-                        {wallet.icon ? <img alt="" src={wallet.icon} /> : <Wallet size={18} />}
-                        <span>{wallet.name}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="small-copy">
-                      No installed Sui wallet extension was detected. Install or enable a Sui-compatible extension, then refresh.
-                    </p>
-                  )}
+                  {walletOptions}
                 </div>
               ) : null}
             </>
@@ -387,8 +449,14 @@ function RecallApp() {
           <div className="panel-heading">
             <h2>Memory</h2>
             <div>
-              <button className="icon-button" onClick={startNewSession} type="button" title="New session">
-                <Plus size={18} />
+              <button
+                className="icon-button"
+                disabled={!auth || isConfirmingNewSession}
+                onClick={startNewSession}
+                type="button"
+                title="New session"
+              >
+                {isConfirmingNewSession ? <Loader2 size={18} /> : <Plus size={18} />}
               </button>
             </div>
           </div>
@@ -398,7 +466,7 @@ function RecallApp() {
               : "Checking Walrus storage..."}
           </p>
           <p className="small-copy">
-            {isSuiMemoryConfigured() ? "Sui on-chain references enabled" : "Sui references using local fallback"}
+            Encrypted sessions are saved to Walrus and restored by blob ID.
           </p>
           <div className="memory-list">
             {isLoadingMemory ? (
@@ -416,7 +484,6 @@ function RecallApp() {
                     {session.messages.length} messages - {formatDate(session.updatedAt)}
                   </span>
                   <span>{formatStorageProvider(session)} - {session.blobId ?? "Blob restored"}</span>
-                  <span>{formatSuiReference(session)}</span>
                 </button>
               ))
             ) : (
@@ -463,13 +530,13 @@ function RecallApp() {
               <Brain size={48} color="var(--accent)" />
               <h2>Ask once. Remember forever.</h2>
               <p>
-                Recall AI restores your prior sessions after wallet login, injects them into the assistant context, and writes the new encrypted session back to Walrus with Sui blob references.
+                Recall AI restores your prior sessions after wallet login, injects them into the assistant context, and writes the new encrypted session back to Walrus with a blob ID.
               </p>
             </div>
           )}
           {isSending ? (
             <article className="message assistant">
-              <Loader2 size={16} /> {isWritingSui ? "Writing blob reference on Sui..." : "Thinking with restored memory..."}
+              <Loader2 size={16} /> Thinking with restored memory...
             </article>
           ) : null}
         </div>

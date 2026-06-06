@@ -8,7 +8,7 @@ const GRPC_URLS = {
 
 export const dAppKit = createDAppKit({
   networks: ["mainnet", "testnet"],
-  defaultNetwork: "mainnet",
+  defaultNetwork: "testnet",
   createClient: (network) => new SuiGrpcClient({ network, baseUrl: GRPC_URLS[network] }),
   autoConnect: false,
   storage: null,

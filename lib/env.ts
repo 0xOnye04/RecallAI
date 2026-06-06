@@ -9,9 +9,6 @@ export const env = {
   walrusAggregatorUrl: process.env.WALRUS_AGGREGATOR_URL ?? "",
   suiNetwork: process.env.SUI_NETWORK ?? "mainnet",
   suiRpcUrl: process.env.SUI_RPC_URL ?? "https://fullnode.mainnet.sui.io:443",
-  suiMemoryPackageId: process.env.SUI_MEMORY_PACKAGE_ID ?? "",
-  suiMemoryModule: process.env.SUI_MEMORY_MODULE ?? "recall_memory",
-  suiMemoryRegistryId: process.env.SUI_MEMORY_REGISTRY_ID ?? "",
   tatumApiKey: process.env.TATUM_API_KEY ?? "",
   tatumBaseUrl: process.env.TATUM_BASE_URL ?? "https://api.tatum.io",
   tatumSuiNetwork: process.env.TATUM_SUI_NETWORK ?? process.env.SUI_NETWORK ?? "mainnet"
