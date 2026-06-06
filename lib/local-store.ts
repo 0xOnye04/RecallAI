@@ -1,7 +1,10 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
+import os from "os";
 import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+const DATA_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), "recall-ai-data")
+  : path.join(process.cwd(), ".data");
 
 export async function readJsonFile<T>(fileName: string, fallback: T): Promise<T> {
   try {
